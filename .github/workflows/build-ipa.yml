@@ -1,0 +1,122 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # macOS runner is free and unlimited on public repositories. Nothing is
+    # signed: no Apple ID, certificate or provisioning profile is involved.
+    runs-on: macos-15
+    steps:
+      - name: Check out this repository
+        uses: actions/checkout@v4
+
+      # The complete app lives in a private repository. When CORE_PAT is set
+      # this step pulls it and the job builds the full IPA. Without the secret
+      # (forks, or before the secret is added) the checkout fails softly and
+      # the job falls back to the shell demo in this repository.
+      - name: Check out private core (optional)
+        id: core
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: jackson54188-arch/MaiPanel_WoW
+          token: ${{ secrets.CORE_PAT }}
+          path: core
+          persist-credentials: false
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Build complete app
+        if: steps.core.outcome == 'success'
+        working-directory: core/app
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild \
+            -project MaiPanel.xcodeproj \
+            -scheme MaiPanel \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Build shell demo
+        if: steps.core.outcome != 'success'
+        working-directory: app
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild \
+            -project MaiPanelShell.xcodeproj \
+            -scheme MaiPanelShell \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Package complete IPA
+        if: steps.core.outcome == 'success'
+        run: |
+          APP="core/app/build/Build/Products/Release-iphoneos/MaiPanel.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry MaiPanel-unsigned.ipa Payload
+
+      - name: Package shell IPA
+        if: steps.core.outcome != 'success'
+        run: |
+          APP="app/build/Build/Products/Release-iphoneos/MaiPanelShell.app"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist"
+          rm -rf Payload
+          mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry MaiPanel-shell-unsigned.ipa Payload
+
+      - name: Upload complete IPA
+        if: success() && steps.core.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaiPanel-unsigned
+          path: MaiPanel-unsigned.ipa
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload shell IPA
+        if: success() && steps.core.outcome != 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: MaiPanel-shell-unsigned
+          path: MaiPanel-shell-unsigned.ipa
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: |
+            core/app/xcodebuild.log
+            app/xcodebuild.log
+          retention-days: 3
+          if-no-files-found: ignore

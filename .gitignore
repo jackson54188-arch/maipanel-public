@@ -1,0 +1,23 @@
+# Xcode / xcodegen
+app/MaiPanelShell.xcodeproj/
+app/build/
+app/DerivedData/
+app/xcodebuild.log
+xcuserdata/
+*.xcuserstate
+*.ipa
+Payload/
+
+# Python
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# Editors
+.vscode/
+.idea/
