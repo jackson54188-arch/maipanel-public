@@ -33,6 +33,7 @@ enum Ring {
 @MainActor
 final class ShellModel: ObservableObject {
     @Published private(set) var connected = false
+    @Published private(set) var hasVideo = false
     @Published private(set) var slot: Int
 
     private static let slotKey = "panelSlot"
@@ -46,11 +47,15 @@ final class ShellModel: ObservableObject {
         server.onDisconnected = { [weak self] in
             Task { @MainActor in
                 self?.connected = false
+                self?.hasVideo = false
                 VideoSink.shared.clear()
             }
         }
         server.onVideo = { data in
             VideoSink.shared.push(data)
+        }
+        server.onVideoStarted = { [weak self] in
+            Task { @MainActor in self?.hasVideo = true }
         }
         server.start(port: panelPort(for: slot), slot: slot)
     }
@@ -63,6 +68,7 @@ final class ShellModel: ObservableObject {
         slot = next
         UserDefaults.standard.set(slot, forKey: Self.slotKey)
         connected = false
+        hasVideo = false
         VideoSink.shared.clear()
         server.start(port: panelPort(for: slot), slot: slot)
     }
@@ -161,7 +167,8 @@ struct ShellView: View {
     }
 
     private var statusHint: String {
-        model.connected ? "等待视频帧…" : "等待电脑连接…"
+        if !model.connected { return "等待电脑连接…" }
+        return model.hasVideo ? "正在接收串流" : "等待视频帧…"
     }
 
     /// The cabinet's top billboard becomes a full-width strip hugging the

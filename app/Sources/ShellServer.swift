@@ -11,10 +11,13 @@ final class ShellServer {
     private var keepAlive: DispatchSourceTimer?
     private var inbox: [UInt8] = []
     private var slot = 1
+    private var deliveredVideo = false
 
     var onConnected: (() -> Void)?
     var onDisconnected: (() -> Void)?
     var onVideo: ((Data) -> Void)?
+    /// Fires once per connection, when the first video frame arrives.
+    var onVideoStarted: (() -> Void)?
 
     /// Restart on a new port; `stop()` runs first, so a slot switch never
     /// leaves the old listener bound.
@@ -69,6 +72,7 @@ final class ShellServer {
         self.connection?.cancel()
         self.connection = connection
         inbox.removeAll()
+        deliveredVideo = false
         connection.stateUpdateHandler = { [weak self] state in
             guard let self else { return }
             switch state {
@@ -129,6 +133,12 @@ final class ShellServer {
                 // Decoding happens in VideoSink's own queue; the network queue
                 // only hands over the bytes so frames keep flowing.
                 onVideo?(Data(payload))
+                if !deliveredVideo {
+                    deliveredVideo = true
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onVideoStarted?()
+                    }
+                }
             }
         }
     }
